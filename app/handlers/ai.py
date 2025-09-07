@@ -81,6 +81,8 @@ async def process_text_message(message: Message) -> bool:
             system_prompt=system_prompt,
         )
         log.info(f"process_text_message: OpenAI response received, tokens: {usage.get('total_tokens', 0)}")
+        log.info(f"process_text_message: AI response content length: {len(reply_text) if reply_text else 0}")
+        log.info(f"process_text_message: AI response preview: {reply_text[:100] if reply_text else 'EMPTY'}")
 
         # Log usage best-effort
         log.info("process_text_message: logging usage")
@@ -105,6 +107,10 @@ async def process_text_message(message: Message) -> bool:
             log.info(f"process_text_message: creating note for user {uid}")
             # Save only the AI-processed content, not the original message
             content = reply_text
+            if not content or not content.strip():
+                log.warning("process_text_message: AI response is empty, not saving note")
+                return False
+            log.info(f"process_text_message: saving content with length {len(content)}")
             success = create_note(user_id=uid, content=content, source="web")
             log.info(f"process_text_message: note creation {'succeeded' if success else 'failed'}")
             return success
@@ -188,6 +194,10 @@ async def process_voice_message(message: Message) -> bool:
             log.info(f"process_voice_message: creating note for user {uid}")
             # Save only the AI-processed content, not the transcript
             content = reply_text
+            if not content or not content.strip():
+                log.warning("process_voice_message: AI response is empty, not saving note")
+                return False
+            log.info(f"process_voice_message: saving content with length {len(content)}")
             success = create_note(user_id=uid, content=content, source="web")
             log.info(f"process_voice_message: note creation {'succeeded' if success else 'failed'}")
             return success
@@ -249,6 +259,10 @@ async def process_video_note(message: Message) -> bool:
         if uid:
             # Save only the AI-processed content, not the transcript
             content = reply_text
+            if not content or not content.strip():
+                log.warning("process_video_note: AI response is empty, not saving note")
+                return False
+            log.info(f"process_video_note: saving content with length {len(content)}")
             success = create_note(user_id=uid, content=content, source="web")
             return success
         return False
