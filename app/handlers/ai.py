@@ -53,27 +53,25 @@ def _forward_meta(message: Message) -> str:
 
 
 def _strip_trailing_json_block(text: str) -> str:
-    """Remove a trailing fenced JSON code block (```json ... ```) if present.
+    """Sanitize AI text so only plain text is stored in notes.
 
-    The system prompt appends metadata as a final ```json block. We don't want to
-    persist it in notes. This function removes only the trailing block, leaving
-    any earlier content intact.
+    Removes any fenced code blocks (```...```), including languages like
+    ```json, ```sql, etc., anywhere in the text. This ensures we don't
+    persist SQL/JSON/code snippets into the DB — only human-readable text.
     """
     import re
 
     if not text:
         return text
 
-    # First try to remove a trailing ```json ... ``` block
-    pattern_json = re.compile(r"(?s)\n```json\s*\{.*?\}\s*```\s*$")
-    new_text = pattern_json.sub("\n", text)
-    if new_text != text:
-        return new_text.strip()
+    # Remove all fenced code blocks of any language (greedy-safe, non-greedy body)
+    # Examples removed: ```json ...```, ```sql ...```, ```python ...```, ``` ...```
+    sanitized = re.sub(r"(?s)```.*?```", "\n", text)
 
-    # Fallback: remove any trailing fenced block that looks like JSON
-    pattern_any = re.compile(r"(?s)\n```\s*\{.*?\}\s*```\s*$")
-    new_text = pattern_any.sub("\n", text)
-    return new_text.strip()
+    # Cleanup any leftover unmatched fences just in case
+    sanitized = sanitized.replace("```", "")
+
+    return sanitized.strip()
 
 
 async def process_text_message(message: Message) -> bool:

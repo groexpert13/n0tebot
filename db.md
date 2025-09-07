@@ -32,7 +32,7 @@
 | public | notes      | title                   | text                     | YES         | null              |
 | public | notes      | content                 | text                     | NO          | null              |
 | public | notes      | source                  | text                     | YES         | 'web'::text       |
+| public | notes      | time                    | time without time zone   | YES         | null              |
 | public | notes      | created_at              | timestamp with time zone | NO          | now()             |
 | public | notes      | updated_at              | timestamp with time zone | NO          | now()             |
 | public | notes      | deleted_at              | timestamp with time zone | YES         | null              |
-| public | notes      | time                    | time without time zone   | YES         | null              |
