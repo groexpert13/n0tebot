@@ -1,4 +1,4 @@
-# Деплой на Heroku (worker для Telegram polling)
+# Деплой на Heroku (webhook или polling)
 
 Шаги (локально):
 
@@ -16,12 +16,57 @@
 4. Запушьте в Heroku (если remote ещё не создан):
    `git push https://git.heroku.com/<app-name>.git main`
 
-5. Убедитесь, что dyno типа `worker` включён:
-   `heroku ps:scale worker=1 --app <app-name>`
+5. Включите нужные dyno:
+   - Webhook-режим (рекомендуется в проде):
+     - включите web: `heroku ps:scale web=1 --app <app-name>`
+     - отключите worker: `heroku ps:scale worker=0 --app <app-name>`
+   - Polling-режим (простой старт):
+     - включите worker: `heroku ps:scale worker=1 --app <app-name>`
+     - можно отключить web: `heroku ps:scale web=0 --app <app-name>`
 
 6. Просмотрите логи:
    `heroku logs --tail --app <app-name>`
 
+## Webhook Telegram
+
+В проект добавлен FastAPI-эндпоинт `POST /telegram/webhook`, который принимает обновления Telegram и прокидывает их в aiogram.
+
+1) Установите секрет (опционально, но лучше включить):
+
+```
+heroku config:set TELEGRAM_WEBHOOK_SECRET=<случайная_строка> --app <app-name>
+```
+
+2) Включите web-дино и отключите polling:
+
+```
+heroku ps:scale web=1 worker=0 --app <app-name>
+```
+
+3) Зарегистрируйте webhook у Telegram:
+
+```
+curl -X POST "https://api.telegram.org/bot$BOT_TOKEN/setWebhook" \
+  -H "Content-Type: application/json" \
+  -d '{
+        "url": "https://<app-name>.herokuapp.com/telegram/webhook",
+        "secret_token": "'$TELEGRAM_WEBHOOK_SECRET'"
+      }'
+```
+
+4) Проверка:
+
+```
+curl "https://api.telegram.org/bot$BOT_TOKEN/getWebhookInfo"
+```
+
+Если нужно отключить webhook и вернуться на polling:
+
+```
+curl -X POST "https://api.telegram.org/bot$BOT_TOKEN/deleteWebhook"
+heroku ps:scale worker=1 web=0 --app <app-name>
+```
+
 Примечания:
-- Проект запускает Telegram-bot через polling в worker-дино (Procfile). Если хотите использовать webhook, потребуется настроить вебсервер (Flask/FastAPI), expose URL и сертификат.
+- Telegram присылает заголовок `X-Telegram-Bot-Api-Secret-Token`; если переменная `TELEGRAM_WEBHOOK_SECRET` задана, эндпоинт проверяет точное совпадение и отклоняет чужие запросы.
 - Проверьте, что в Heroku установлена нужная версия Python (см. `runtime.txt`).

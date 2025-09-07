@@ -7,7 +7,7 @@ import time
 from typing import Dict, List, Tuple, Optional
 from urllib.parse import parse_qsl
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request, Header
 from pydantic import BaseModel
 
 from .config import settings
@@ -15,8 +15,38 @@ from .db_users import (
     upsert_visit_from_webapp_user,
     resolve_user_basic_info,
 )
+from .supabase_client import get_supabase
+
+from aiogram import Bot, Dispatcher
+from aiogram.enums import ParseMode
+from aiogram.client.default import DefaultBotProperties
+from aiogram.types import Update
 
 app = FastAPI()
+
+# Initialize aiogram Bot/Dispatcher for webhook mode
+bot = Bot(token=settings.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+dp = Dispatcher()
+
+# Attach routers similar to polling setup
+try:
+    from .handlers import start_router, misc_router, commands_router, notes_router
+
+    dp.include_router(notes_router)
+    dp.include_router(start_router)
+    dp.include_router(misc_router)
+    dp.include_router(commands_router)
+except Exception:
+    # If handlers are missing for any reason, continue with health endpoints only
+    pass
+
+# Optionally attach Supabase to workflow_data (used by handlers)
+try:
+    supabase = get_supabase()
+    if supabase is not None:
+        dp.workflow_data["supabase"] = supabase
+except Exception:
+    pass
 
 
 @app.get("/")
@@ -108,3 +138,28 @@ async def resolve_user(req: ResolveUserRequest):
 async def resolve_user_get(init_data: str = Query(..., description="initData from Telegram WebApp")):
     # Convenience GET variant
     return await resolve_user(ResolveUserRequest(init_data=init_data))
+
+
+@app.post("/telegram/webhook")
+async def telegram_webhook(
+    request: Request,
+    x_telegram_bot_api_secret_token: str | None = Header(default=None),
+):
+    # Optional verification via secret header if set
+    if settings.telegram_webhook_secret:
+        if not x_telegram_bot_api_secret_token or x_telegram_bot_api_secret_token != settings.telegram_webhook_secret:
+            raise HTTPException(status_code=401, detail="Invalid webhook secret")
+
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    try:
+        update = Update.model_validate(payload)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid update payload")
+
+    # Feed update to aiogram dispatcher
+    await dp.feed_update(bot, update)
+    return {"ok": True}

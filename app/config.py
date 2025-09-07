@@ -20,6 +20,7 @@ class Settings:
     supabase_service_role_key: Optional[str]
     privacy_url: Optional[str]
     webapp_url: Optional[str]
+    telegram_webhook_secret: Optional[str]
     openai_api_key: Optional[str]
     openai_model_text: Optional[str]
     openai_model_transcribe: Optional[str]
@@ -43,6 +44,7 @@ class Settings:
             supabase_service_role_key=os.getenv("SUPABASE_SERVICE_ROLE_KEY"),
             privacy_url=os.getenv("PRIVACY_URL"),
             webapp_url=webapp_url,
+            telegram_webhook_secret=os.getenv("TELEGRAM_WEBHOOK_SECRET"),
             openai_api_key=os.getenv("OPENAI_API_KEY"),
             openai_model_text=os.getenv("OPENAI_MODEL_TEXT"),
             openai_model_transcribe=os.getenv("OPENAI_MODEL_TRANSCRIBE"),
