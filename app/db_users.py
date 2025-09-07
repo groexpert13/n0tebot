@@ -1,0 +1,123 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Any, Dict, Optional
+import logging
+
+from aiogram.types import User as TgUser
+
+from .supabase_client import get_supabase
+
+
+log = logging.getLogger(__name__)
+
+
+def _now() -> str:
+    # ISO 8601 string with timezone (PostgREST accepts str and converts)
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _fetch_user_by_tg_id(tg_user_id: int) -> Optional[Dict[str, Any]]:
+    client = get_supabase()
+    if client is None:
+        return None
+    try:
+        res = (
+            client.table("app_users")
+            .select("id, visits_count")
+            .eq("tg_user_id", tg_user_id)
+            .execute()
+        )
+        data = res.data or []
+        return data[0] if data else None
+    except Exception as e:
+        log.warning("fetch user failed: %s", e)
+        return None
+
+
+def upsert_visit_from_tg_user(user: TgUser, platform: str = "telegram-bot") -> None:
+    """Create user row if missing, or update last visit and increment visits_count."""
+    client = get_supabase()
+    if client is None:
+        return
+
+    base_fields: Dict[str, Any] = {
+        "tg_user_id": user.id,
+        "tg_username": user.username,
+        "tg_first_name": user.first_name,
+        "tg_last_name": user.last_name,
+        "tg_language_code": getattr(user, "language_code", None),
+        "tg_is_premium": getattr(user, "is_premium", None),
+        "last_platform": platform,
+        "last_visit_at": _now(),
+        "updated_at": _now(),
+    }
+
+    existing = _fetch_user_by_tg_id(user.id)
+    try:
+        if existing:
+            visits = existing.get("visits_count") or 0
+            fields = {**base_fields, "visits_count": int(visits) + 1}
+            client.table("app_users").update(fields).eq("tg_user_id", user.id).execute()
+        else:
+            fields = {
+                **base_fields,
+                "timezone": "UTC",
+                "visits_count": 1,
+                "subscription_status": "none",
+            }
+            client.table("app_users").insert(fields).execute()
+    except Exception as e:
+        log.warning("upsert visit failed: %s", e)
+
+
+def set_user_language(tg_user_id: int, lang_code: str) -> None:
+    client = get_supabase()
+    if client is None:
+        return
+    try:
+        # Make sure row exists
+        if not _fetch_user_by_tg_id(tg_user_id):
+            # If missing, create a minimal row
+            client.table("app_users").insert({
+                "tg_user_id": tg_user_id,
+                "timezone": "UTC",
+                "visits_count": 0,
+                "subscription_status": "none",
+                "created_at": _now(),
+                "updated_at": _now(),
+            }).execute()
+
+        client.table("app_users").update({
+            "web_language_code": lang_code,
+            "language_confirmed_at": _now(),
+            "updated_at": _now(),
+        }).eq("tg_user_id", tg_user_id).execute()
+    except Exception as e:
+        log.warning("set language failed: %s", e)
+
+
+def set_privacy_accepted(tg_user_id: int) -> None:
+    client = get_supabase()
+    if client is None:
+        return
+    try:
+        # Ensure row exists
+        if not _fetch_user_by_tg_id(tg_user_id):
+            client.table("app_users").insert({
+                "tg_user_id": tg_user_id,
+                "timezone": "UTC",
+                "visits_count": 0,
+                "subscription_status": "none",
+                "created_at": _now(),
+                "updated_at": _now(),
+            }).execute()
+
+        client.table("app_users").update({
+            "privacy_accepted": True,
+            "privacy_accepted_at": _now(),
+            "updated_at": _now(),
+        }).eq("tg_user_id", tg_user_id).execute()
+    except Exception as e:
+        log.warning("set privacy failed: %s", e)
+
