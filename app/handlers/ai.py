@@ -52,6 +52,30 @@ def _forward_meta(message: Message) -> str:
     return ""
 
 
+def _strip_trailing_json_block(text: str) -> str:
+    """Remove a trailing fenced JSON code block (```json ... ```) if present.
+
+    The system prompt appends metadata as a final ```json block. We don't want to
+    persist it in notes. This function removes only the trailing block, leaving
+    any earlier content intact.
+    """
+    import re
+
+    if not text:
+        return text
+
+    # First try to remove a trailing ```json ... ``` block
+    pattern_json = re.compile(r"(?s)\n```json\s*\{.*?\}\s*```\s*$")
+    new_text = pattern_json.sub("\n", text)
+    if new_text != text:
+        return new_text.strip()
+
+    # Fallback: remove any trailing fenced block that looks like JSON
+    pattern_any = re.compile(r"(?s)\n```\s*\{.*?\}\s*```\s*$")
+    new_text = pattern_any.sub("\n", text)
+    return new_text.strip()
+
+
 async def process_text_message(message: Message) -> bool:
     """Process text message through AI and save to DB. Returns True if successful."""
     import logging
@@ -105,8 +129,8 @@ async def process_text_message(message: Message) -> bool:
         uid = resolve_user_id_by_tg(user_id)
         if uid:
             log.info(f"process_text_message: creating note for user {uid}")
-            # Save only the AI-processed content, not the original message
-            full_text = reply_text
+            # Save only the AI-processed content (without trailing JSON metadata)
+            full_text = _strip_trailing_json_block(reply_text)
             if not full_text or not full_text.strip():
                 log.warning("process_text_message: AI response is empty, not saving note")
                 return False
@@ -207,8 +231,8 @@ async def process_voice_message(message: Message) -> bool:
         uid = resolve_user_id_by_tg(user_id)
         if uid:
             log.info(f"process_voice_message: creating note for user {uid}")
-            # Save only the AI-processed content, not the transcript
-            full_text = reply_text
+            # Save only the AI-processed content, without trailing JSON metadata
+            full_text = _strip_trailing_json_block(reply_text)
             if not full_text or not full_text.strip():
                 log.warning("process_voice_message: AI response is empty, not saving note")
                 return False
@@ -287,8 +311,8 @@ async def process_video_note(message: Message) -> bool:
             upsert_visit_from_tg_user(message.from_user)
         uid = resolve_user_id_by_tg(user_id)
         if uid:
-            # Save only the AI-processed content, not the transcript
-            full_text = reply_text
+            # Save only the AI-processed content, without trailing JSON metadata
+            full_text = _strip_trailing_json_block(reply_text)
             if not full_text or not full_text.strip():
                 log.warning("process_video_note: AI response is empty, not saving note")
                 return False

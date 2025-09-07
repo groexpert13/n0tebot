@@ -35,3 +35,4 @@
 | public | notes      | created_at              | timestamp with time zone | NO          | now()             |
 | public | notes      | updated_at              | timestamp with time zone | NO          | now()             |
 | public | notes      | deleted_at              | timestamp with time zone | YES         | null              |
+| public | notes      | time                    | time without time zone   | YES         | null              |
