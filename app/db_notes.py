@@ -49,6 +49,7 @@ def create_note(
     title: Optional[str] = None,
     d: Optional[str] = None,
     source: Optional[str] = None,
+    time: Optional[str] = None,
 ) -> bool:
     """Insert a note row. Returns True on success, False otherwise.
 
@@ -67,6 +68,8 @@ def create_note(
         }
         if title:
             payload["title"] = title
+        if time:
+            payload["time"] = time
         client.table("notes").insert(payload).execute()
         return True
     except Exception as e:

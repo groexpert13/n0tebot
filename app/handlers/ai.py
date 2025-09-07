@@ -106,12 +106,27 @@ async def process_text_message(message: Message) -> bool:
         if uid:
             log.info(f"process_text_message: creating note for user {uid}")
             # Save only the AI-processed content, not the original message
-            content = reply_text
-            if not content or not content.strip():
+            full_text = reply_text
+            if not full_text or not full_text.strip():
                 log.warning("process_text_message: AI response is empty, not saving note")
                 return False
-            log.info(f"process_text_message: saving content with length {len(content)}")
-            success = create_note(user_id=uid, content=content, source="web")
+            
+            # Extract first line as title, rest as content
+            lines = full_text.strip().split('\n', 1)
+            title = lines[0].strip() if lines else ""
+            content = lines[1].strip() if len(lines) > 1 else ""
+            
+            # If no content after title, use title as content and clear title
+            if not content:
+                content = title
+                title = None
+            
+            # Get current time for the time field
+            from datetime import datetime, timezone
+            current_time = datetime.now(timezone.utc).strftime("%H:%M")
+            
+            log.info(f"process_text_message: saving title='{title[:50] if title else 'None'}...', content length={len(content)}, time={current_time}")
+            success = create_note(user_id=uid, content=content, title=title, source="web", time=current_time)
             log.info(f"process_text_message: note creation {'succeeded' if success else 'failed'}")
             return success
         else:
@@ -193,12 +208,27 @@ async def process_voice_message(message: Message) -> bool:
         if uid:
             log.info(f"process_voice_message: creating note for user {uid}")
             # Save only the AI-processed content, not the transcript
-            content = reply_text
-            if not content or not content.strip():
+            full_text = reply_text
+            if not full_text or not full_text.strip():
                 log.warning("process_voice_message: AI response is empty, not saving note")
                 return False
-            log.info(f"process_voice_message: saving content with length {len(content)}")
-            success = create_note(user_id=uid, content=content, source="web")
+            
+            # Extract first line as title, rest as content
+            lines = full_text.strip().split('\n', 1)
+            title = lines[0].strip() if lines else ""
+            content = lines[1].strip() if len(lines) > 1 else ""
+            
+            # If no content after title, use title as content and clear title
+            if not content:
+                content = title
+                title = None
+            
+            # Get current time for the time field
+            from datetime import datetime, timezone
+            current_time = datetime.now(timezone.utc).strftime("%H:%M")
+            
+            log.info(f"process_voice_message: saving title='{title[:50] if title else 'None'}...', content length={len(content)}, time={current_time}")
+            success = create_note(user_id=uid, content=content, title=title, source="web", time=current_time)
             log.info(f"process_voice_message: note creation {'succeeded' if success else 'failed'}")
             return success
         else:
@@ -258,12 +288,27 @@ async def process_video_note(message: Message) -> bool:
         uid = resolve_user_id_by_tg(user_id)
         if uid:
             # Save only the AI-processed content, not the transcript
-            content = reply_text
-            if not content or not content.strip():
+            full_text = reply_text
+            if not full_text or not full_text.strip():
                 log.warning("process_video_note: AI response is empty, not saving note")
                 return False
-            log.info(f"process_video_note: saving content with length {len(content)}")
-            success = create_note(user_id=uid, content=content, source="web")
+            
+            # Extract first line as title, rest as content
+            lines = full_text.strip().split('\n', 1)
+            title = lines[0].strip() if lines else ""
+            content = lines[1].strip() if len(lines) > 1 else ""
+            
+            # If no content after title, use title as content and clear title
+            if not content:
+                content = title
+                title = None
+            
+            # Get current time for the time field
+            from datetime import datetime, timezone
+            current_time = datetime.now(timezone.utc).strftime("%H:%M")
+            
+            log.info(f"process_video_note: saving title='{title[:50] if title else 'None'}...', content length={len(content)}, time={current_time}")
+            success = create_note(user_id=uid, content=content, title=title, source="web", time=current_time)
             return success
         return False
     except Exception:
