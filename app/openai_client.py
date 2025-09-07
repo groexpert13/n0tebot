@@ -65,15 +65,40 @@ async def generate_text(
         **(extra or {}),
     )
 
-    # Extract text
+    # Extract text - debug the response structure
     text = ""
-    if resp.output and len(resp.output) > 0:
-        # New-style Responses API collections
-        for item in resp.output:
-            if getattr(item, "type", None) == "output_text":
-                text += getattr(item, "text", "")
-    elif hasattr(resp, "output_text"):
+    
+    # Debug logging
+    import logging
+    log = logging.getLogger(__name__)
+    log.info(f"OpenAI response type: {type(resp)}")
+    log.info(f"OpenAI response attributes: {dir(resp)}")
+    
+    if hasattr(resp, 'output') and resp.output:
+        log.info(f"resp.output type: {type(resp.output)}, length: {len(resp.output) if hasattr(resp.output, '__len__') else 'no len'}")
+        if len(resp.output) > 0:
+            for i, item in enumerate(resp.output):
+                log.info(f"output[{i}] type: {type(item)}, attributes: {dir(item)}")
+                if hasattr(item, 'type'):
+                    log.info(f"output[{i}].type: {item.type}")
+                if hasattr(item, 'text'):
+                    log.info(f"output[{i}].text: {item.text[:100] if item.text else 'None'}")
+                    if getattr(item, "type", None) == "output_text":
+                        text += getattr(item, "text", "")
+    
+    # Try alternative extraction methods
+    if not text and hasattr(resp, "output_text"):
         text = getattr(resp, "output_text", "")
+        log.info(f"Using resp.output_text: {text[:100] if text else 'None'}")
+    
+    if not text and hasattr(resp, 'choices') and resp.choices:
+        # Fallback to chat completion format
+        choice = resp.choices[0]
+        if hasattr(choice, 'message') and hasattr(choice.message, 'content'):
+            text = choice.message.content or ""
+            log.info(f"Using choices[0].message.content: {text[:100] if text else 'None'}")
+    
+    log.info(f"Final extracted text length: {len(text)}")
 
     usage = {
         "input_tokens": int(getattr(getattr(resp, "usage", None) or {}, "input_tokens", 0) or 0),
