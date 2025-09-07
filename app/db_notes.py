@@ -62,7 +62,7 @@ def create_note(
             "user_id": user_id,
             "d": d or _today_date_str(),
             "content": content,
-            "source": source or "telegram-bot",
+            "source": source or "web",
             "updated_at": _now_iso(),
         }
         if title:
