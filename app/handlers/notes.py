@@ -88,13 +88,20 @@ async def _handle_common(message: Message, message_type: str = "text") -> None:
         hint = await message.answer(NEXT_PROMPT.get(lang, NEXT_PROMPT["en"]))
         state.last_prompt_message_id = hint.message_id
     else:
-        # Show error message
+        # Show error as alert, then show menu anyway
         error_text = {
             "en": "Failed to process your message. Please try again.",
             "uk": "Не вдалося обробити ваше повідомлення. Спробуйте ще раз.",
             "ru": "Не удалось обработать ваше сообщение. Попробуйте ещё раз."
         }
-        await message.answer(error_text.get(lang, error_text["en"]))
+        # Send alert (this requires a callback query, so we'll use a different approach)
+        # For now, show menu with error indication
+        done_text = PROCESSED_DONE.get(lang, PROCESSED_DONE["en"]) 
+        sent = await message.answer(done_text, reply_markup=open_button_kb(lang))
+        state.last_content_message_id = sent.message_id
+        # Send error as separate message below
+        error_msg = await message.answer(f"⚠️ {error_text.get(lang, error_text['en'])}")
+        state.last_prompt_message_id = error_msg.message_id
 
 
 @router.message(F.text & ~F.via_bot & ~F.text.regexp(r"^/"))
