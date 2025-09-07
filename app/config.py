@@ -23,7 +23,7 @@ class Settings:
 
     @staticmethod
     def from_env() -> "Settings":
-        token = os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
+        token = (os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
         if not token:
             raise RuntimeError(
                 "BOT_TOKEN (or TELEGRAM_BOT_TOKEN) is not set in environment"

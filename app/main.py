@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 
 from aiogram import Bot, Dispatcher
+from aiogram.exceptions import TelegramUnauthorizedError
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
 from aiogram.types import BotCommand
@@ -38,25 +39,38 @@ async def main() -> None:
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
     )
 
-    bot = Bot(
+    # Use async context manager to ensure ClientSession is closed
+    async with Bot(
         token=settings.bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
-    )
-    dp = Dispatcher()
+    ) as bot:
+        dp = Dispatcher()
 
-    # Routers
-    dp.include_router(start_router)
-    dp.include_router(misc_router)
-    dp.include_router(commands_router)
-    dp.include_router(notes_router)
+        # Routers
+        dp.include_router(start_router)
+        dp.include_router(misc_router)
+        dp.include_router(commands_router)
+        dp.include_router(notes_router)
 
-    # Initialize Supabase client (no queries yet)
-    supabase = get_supabase()
-    if supabase is not None:
-        dp.workflow_data["supabase"] = supabase
+        # Initialize Supabase client (no queries yet)
+        supabase = get_supabase()
+        if supabase is not None:
+            dp.workflow_data["supabase"] = supabase
 
-    await set_bot_commands(bot)
-    await dp.start_polling(bot)
+        try:
+            await set_bot_commands(bot)
+            await dp.start_polling(bot)
+        except TelegramUnauthorizedError:
+            logging.error(
+                "TelegramUnauthorizedError: bot token seems invalid or revoked.\n"
+                "Check BOT_TOKEN in environment and rotate the token immediately."
+            )
+            # Exit with non-zero code so process managers (heroku) treat this as crash
+            # but ensure client session is closed by context manager.
+            sys.exit(1)
+        except Exception:
+            logging.exception("Unexpected error while running bot")
+            raise
 
 
 if __name__ == "__main__":
