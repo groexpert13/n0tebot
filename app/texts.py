@@ -110,11 +110,11 @@ ACCEPT_PRIVACY_FIRST: Dict[Lang, str] = {
     "ru": "Сначала примите Политику конфиденциальности.",
 }
 
-# Error shown when AI or DB persistence fails
+# Generic error for failures to process or save
 ERROR_TRY_AGAIN: Dict[Lang, str] = {
-    "en": "We couldn't process your note. Please try again or resend.",
-    "uk": "Не вдалося обробити запис. Будь ласка, спробуйте ще раз або перешліть.",
-    "ru": "Не удалось обработать запись. Пожалуйста, попробуйте ещё раз или перешлите.",
+    "en": "Something went wrong. Please try again or resend.",
+    "uk": "Щось пішло не так. Спробуйте ще раз або надішліть знову.",
+    "ru": "Что-то пошло не так. Попробуйте ещё раз или перешлите заново.",
 }
 
 # Side menu commands descriptions per language
