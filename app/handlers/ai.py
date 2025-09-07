@@ -103,7 +103,8 @@ async def process_text_message(message: Message) -> bool:
         uid = resolve_user_id_by_tg(user_id)
         if uid:
             log.info(f"process_text_message: creating note for user {uid}")
-            content = f"# Telegram text\n\n**Me:**\n{message.text}\n\n**AI:**\n{reply_text}"
+            # Save only the AI-processed content, not the original message
+            content = reply_text
             success = create_note(user_id=uid, content=content, source="web")
             log.info(f"process_text_message: note creation {'succeeded' if success else 'failed'}")
             return success
@@ -185,7 +186,8 @@ async def process_voice_message(message: Message) -> bool:
         uid = resolve_user_id_by_tg(user_id)
         if uid:
             log.info(f"process_voice_message: creating note for user {uid}")
-            content = f"# Telegram voice\n\n**Transcript:**\n{text}\n\n**AI:**\n{reply_text}"
+            # Save only the AI-processed content, not the transcript
+            content = reply_text
             success = create_note(user_id=uid, content=content, source="web")
             log.info(f"process_voice_message: note creation {'succeeded' if success else 'failed'}")
             return success
@@ -245,7 +247,8 @@ async def process_video_note(message: Message) -> bool:
             upsert_visit_from_tg_user(message.from_user)
         uid = resolve_user_id_by_tg(user_id)
         if uid:
-            content = f"# Telegram video note\n\n**Transcript:**\n{text}\n\n**AI:**\n{reply_text}"
+            # Save only the AI-processed content, not the transcript
+            content = reply_text
             success = create_note(user_id=uid, content=content, source="web")
             return success
         return False
