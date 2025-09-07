@@ -35,6 +35,28 @@ def _fetch_user_by_tg_id(tg_user_id: int) -> Optional[Dict[str, Any]]:
         return None
 
 
+def get_privacy_accepted(tg_user_id: int) -> Optional[bool]:
+    """Return True/False if user row exists, or None if not found/unavailable."""
+    client = get_supabase()
+    if client is None:
+        return None
+    try:
+        res = (
+            client.table("app_users")
+            .select("privacy_accepted")
+            .eq("tg_user_id", tg_user_id)
+            .limit(1)
+            .execute()
+        )
+        rows = res.data or []
+        if not rows:
+            return None
+        return bool(rows[0].get("privacy_accepted"))
+    except Exception as e:
+        log.warning("get privacy_accepted failed: %s", e)
+        return None
+
+
 def upsert_visit_from_tg_user(user: TgUser, platform: str = "telegram-bot") -> None:
     """Create user row if missing, or update last visit and increment visits_count."""
     client = get_supabase()
@@ -120,4 +142,3 @@ def set_privacy_accepted(tg_user_id: int) -> None:
         }).eq("tg_user_id", tg_user_id).execute()
     except Exception as e:
         log.warning("set privacy failed: %s", e)
-

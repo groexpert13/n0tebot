@@ -23,7 +23,12 @@ from ..texts import (
 )
 from ..config import settings
 from ..commands_setup import set_chat_commands
-from ..db_users import upsert_visit_from_tg_user, set_user_language, set_privacy_accepted
+from ..db_users import (
+    upsert_visit_from_tg_user,
+    set_user_language,
+    set_privacy_accepted,
+    get_privacy_accepted,
+)
 
 
 router = Router(name=__name__)
@@ -59,7 +64,14 @@ def open_button_kb(lang: str) -> InlineKeyboardMarkup:
 async def cmd_start(message: Message) -> None:
     user_id = message.from_user.id if message.from_user else message.chat.id
     state = get_user_state(user_id)
+    # Initialize state; try to hydrate privacy from DB to avoid re-prompting
     state.accepted_privacy = False
+    try:
+        accepted = get_privacy_accepted(user_id)
+        if accepted:
+            state.accepted_privacy = True
+    except Exception:
+        pass
     state.lang = None
     state.last_content_message_id = None
     state.last_prompt_message_id = None
@@ -80,10 +92,7 @@ async def on_language_chosen(cb: CallbackQuery) -> None:
     user_id = cb.from_user.id
     state = get_user_state(user_id)
     state.lang = code
-    state.accepted_privacy = False
-
-    privacy_url = settings.privacy_url or "https://example.com/privacy"
-    text = PRIVACY_MESSAGE.get(code, PRIVACY_MESSAGE["en"]).format(url=privacy_url)
+    # Keep previously accepted privacy if present
 
     # Persist language choice
     try:
@@ -91,6 +100,35 @@ async def on_language_chosen(cb: CallbackQuery) -> None:
     except Exception:
         pass
 
+    # If privacy already accepted before, skip the privacy block entirely
+    already_accepted = False
+    try:
+        res = get_privacy_accepted(user_id)
+        already_accepted = bool(res)
+    except Exception:
+        already_accepted = False
+
+    if already_accepted:
+        state.accepted_privacy = True
+        # Show Pro/trial block + open button, then hint
+        pro_text = PRO_MESSAGE.get(code, PRO_MESSAGE["en"]) 
+        if cb.message:
+            await cb.message.edit_text(pro_text, reply_markup=open_button_kb(code))
+            state.last_content_message_id = cb.message.message_id
+        hint = await cb.message.answer(NEXT_PROMPT.get(code, NEXT_PROMPT["en"]))
+        state.last_prompt_message_id = hint.message_id
+
+        # Localized commands for this chat
+        try:
+            await set_chat_commands(cb.bot, cb.message.chat.id, code)
+        except Exception:
+            pass
+        await cb.answer()
+        return
+
+    # Otherwise prompt to accept privacy
+    privacy_url = settings.privacy_url or "https://example.com/privacy"
+    text = PRIVACY_MESSAGE.get(code, PRIVACY_MESSAGE["en"]).format(url=privacy_url)
     if cb.message:
         await cb.message.edit_text(text, reply_markup=accept_privacy_keyboard(code))
     await cb.answer()

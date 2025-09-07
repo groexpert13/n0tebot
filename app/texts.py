@@ -18,9 +18,18 @@ def choose_language_prompt() -> str:
 
 
 PRIVACY_MESSAGE: Dict[Lang, str] = {
-    "en": "Please review and accept our Privacy Notice: {url}",
-    "uk": "Будь ласка, перегляньте та прийміть нашу Політику конфіденційності: {url}",
-    "ru": "Пожалуйста, ознакомьтесь и примите нашу Политику конфиденциальности: {url}",
+    "en": (
+        "Privacy Notice: {url}\n"
+        "• Read and accept to continue"
+    ),
+    "uk": (
+        "Політика конфіденційності: {url}\n"
+        "• Прочитайте та прийміть, щоб продовжити"
+    ),
+    "ru": (
+        "Политика конфиденциальности: {url}\n"
+        "• Прочитайте и примите, чтобы продолжить"
+    ),
 }
 
 PRIVACY_ACCEPT_BUTTON: Dict[Lang, str] = {
@@ -31,44 +40,38 @@ PRIVACY_ACCEPT_BUTTON: Dict[Lang, str] = {
 
 PRIVACY_ALERT: Dict[Lang, str] = {
     "en": (
-        "Your data is protected from third parties, except the AI used for processing.\n"
-        "Do not send data that may compromise you."
+        "• Your data isn’t shared with third parties.\n"
+        "• AI is used only to process notes.\n"
+        "• Avoid sharing sensitive personal data."
     ),
     "uk": (
-        "Ваші дані захищені від третіх осіб, окрім AI, який використовується для обробки.\n"
-        "Не надсилайте дані, що можуть вас скомпрометувати."
+        "• Ваші дані не передаються третім особам.\n"
+        "• AI використовується лише для обробки нотаток.\n"
+        "• Уникайте надсилання чутливих персональних даних."
     ),
     "ru": (
-        "Ваши данные защищены от третьих лиц, кроме ИИ, используемого для обработки.\n"
-        "Не отправляйте данные, которые могут вас скомпрометировать."
+        "• Ваши данные не передаются третьим лицам.\n"
+        "• ИИ используется только для обработки заметок.\n"
+        "• Избегайте передачи чувствительных персональных данных."
     ),
 }
 
 
 PRO_MESSAGE: Dict[Lang, str] = {
     "en": (
-        "Pro (trial) — 7 days\n"
-        "Send or forward audio or text for processing.\n"
-        "Records are protected from third parties, except the AI used for processing.\n\n"
-        "Do not send data that may compromise you.\n\n"
-        "Open n0te.\n\n"
-        "Subscription status: see menu."
+        "Pro trial — 7 days\n"
+        "• Send or forward audio/text to process\n"
+        "• Private by default; avoid sensitive data"
     ),
     "uk": (
-        "Pro (trial) — 7 днів\n"
-        "Записуйте або пересилайте аудіо чи текст для обробки.\n"
-        "Записи захищені від третіх осіб, окрім AI, який використовується для обробки.\n\n"
-        "Не надсилайте дані, що можуть вас скомпрометувати.\n\n"
-        "Відкрийте n0te.\n\n"
-        "Статус підписки: у меню."
+        "Pro-тріал — 7 днів\n"
+        "• Надсилайте або пересилайте аудіо/текст на обробку\n"
+        "• Приватність за замовчуванням; уникайте чутливих даних"
     ),
     "ru": (
-        "Pro (trial) — 7 дней\n"
-        "Отправляйте или пересылайте аудио или текст для обработки.\n"
-        "Записи защищены от третьих лиц, кроме ИИ, используемого для обработки.\n\n"
-        "Не отправляйте данные, которые могут вас скомпрометировать.\n\n"
-        "Откройте n0te.\n\n"
-        "Статус подписки: в меню."
+        "Pro-триал — 7 дней\n"
+        "• Отправляйте или пересылайте аудио/текст на обработку\n"
+        "• По умолчанию приватно; избегайте чувствительных данных"
     ),
 }
 
@@ -88,9 +91,9 @@ NEXT_PROMPT: Dict[Lang, str] = {
 
 
 PROCESSING: Dict[Lang, str] = {
-    "en": "⏳ Processing...",
-    "uk": "⏳ Обробляю...",
-    "ru": "⏳ Обрабатываю...",
+    "en": "Processing...",
+    "uk": "Обробляю...",
+    "ru": "Обрабатываю...",
 }
 
 
