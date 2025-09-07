@@ -93,6 +93,78 @@ def upsert_visit_from_tg_user(user: TgUser, platform: str = "telegram-bot") -> N
         log.warning("upsert visit failed: %s", e)
 
 
+def upsert_visit_from_webapp_user(user: Dict[str, Any], platform: str = "webapp") -> None:
+    """Create/update an app_users row based on Telegram WebApp `initData.user` dict.
+
+    Expects keys: id, username?, first_name?, last_name?, language_code?, is_premium?, photo_url?
+    """
+    client = get_supabase()
+    if client is None:
+        return
+
+    tg_user_id = int(user.get("id"))
+    base_fields: Dict[str, Any] = {
+        "tg_user_id": tg_user_id,
+        "tg_username": user.get("username"),
+        "tg_first_name": user.get("first_name"),
+        "tg_last_name": user.get("last_name"),
+        "tg_language_code": user.get("language_code"),
+        "tg_is_premium": user.get("is_premium"),
+        "tg_photo_url": user.get("photo_url"),
+        "last_platform": platform,
+        "last_visit_at": _now(),
+        "updated_at": _now(),
+    }
+
+    existing = _fetch_user_by_tg_id(tg_user_id)
+    try:
+        if existing:
+            visits = existing.get("visits_count") or 0
+            fields = {**base_fields, "visits_count": int(visits) + 1}
+            client.table("app_users").update(fields).eq("tg_user_id", tg_user_id).execute()
+        else:
+            fields = {
+                **base_fields,
+                "timezone": "UTC",
+                "visits_count": 1,
+                "subscription_status": "none",
+            }
+            client.table("app_users").insert(fields).execute()
+    except Exception as e:
+        log.warning("upsert webapp visit failed: %s", e)
+
+
+def resolve_user_basic_info(tg_user_id: int) -> Optional[Dict[str, Any]]:
+    """Return {id, web_language_code, timezone, privacy_accepted} by Telegram user id.
+
+    Returns None if user is not found or client unavailable.
+    """
+    client = get_supabase()
+    if client is None:
+        return None
+    try:
+        res = (
+            client.table("app_users")
+            .select("id, web_language_code, timezone, privacy_accepted")
+            .eq("tg_user_id", tg_user_id)
+            .limit(1)
+            .execute()
+        )
+        rows = res.data or []
+        if not rows:
+            return None
+        row = rows[0]
+        return {
+            "id": row.get("id"),
+            "web_language_code": row.get("web_language_code"),
+            "timezone": row.get("timezone"),
+            "privacy_accepted": bool(row.get("privacy_accepted")),
+        }
+    except Exception as e:
+        log.warning("resolve basic info failed: %s", e)
+        return None
+
+
 def set_user_language(tg_user_id: int, lang_code: str) -> None:
     client = get_supabase()
     if client is None:
