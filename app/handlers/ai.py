@@ -24,41 +24,66 @@ def _forward_meta(message: Message) -> str:
         u = message.forward_from
         if u.username:
             parts.append(f"@{u.username}")
+            # Add link if username available
+            link = f"https://t.me/{u.username}"
+        else:
+            link = None
         name = " ".join([x for x in [u.first_name, u.last_name] if x])
         if name:
             parts.append(name)
         parts.append(f"id={u.id}")
+        
+        # Format with link if available
+        if link and u.username:
+            return f"[Forwarded from [{', '.join(parts)}]({link})]\n\n"
+        else:
+            return "[Forwarded from " + ", ".join(parts) + "]\n\n"
     elif getattr(message, "forward_sender_name", None):
         parts.append(str(message.forward_sender_name))
+        return "[Forwarded from " + ", ".join(parts) + "]\n\n"
     elif getattr(message, "forward_from_chat", None):
         ch = message.forward_from_chat
-        parts.append(f"chat:{ch.title or ch.username or ch.id}")
-    if parts:
-        return "[Forwarded from " + ", ".join(parts) + "]\n\n"
+        chat_info = ch.title or ch.username or str(ch.id)
+        if ch.username:
+            link = f"https://t.me/{ch.username}"
+            return f"[Forwarded from chat: [{chat_info}]({link})]\n\n"
+        else:
+            return f"[Forwarded from chat: {chat_info}]\n\n"
     return ""
 
 
 async def process_text_message(message: Message) -> bool:
     """Process text message through AI and save to DB. Returns True if successful."""
+    import logging
+    log = logging.getLogger(__name__)
+    
     if not message.text:
+        log.warning("process_text_message: empty message text")
         return False
     
     user = message.from_user
     user_id = user.id if user else message.chat.id
+    log.info(f"process_text_message: starting for user {user_id}")
 
     try:
         # Load system prompt from repo (system-prompt.md), fallback to context7
         system_prompt: Optional[str] = load_system_prompt() or "Use context7 for reasoning and concise, helpful responses."
+        log.info("process_text_message: system prompt loaded")
 
         forward_prefix = _forward_meta(message)
+        if forward_prefix:
+            log.info(f"process_text_message: forwarded message detected: {forward_prefix[:100]}...")
 
+        log.info("process_text_message: calling OpenAI API")
         reply_text, usage = await generate_text(
             prompt=forward_prefix + message.text,
             user_id=str(user_id),
             system_prompt=system_prompt,
         )
+        log.info(f"process_text_message: OpenAI response received, tokens: {usage.get('total_tokens', 0)}")
 
         # Log usage best-effort
+        log.info("process_text_message: logging usage")
         await log_usage(
             tg_user_id=user_id,
             kind="text",
@@ -70,28 +95,42 @@ async def process_text_message(message: Message) -> bool:
         )
 
         # Ensure user exists and persist note
+        log.info("process_text_message: upserting user visit")
         if message.from_user:
             upsert_visit_from_tg_user(message.from_user)
+        
+        log.info("process_text_message: resolving user ID")
         uid = resolve_user_id_by_tg(user_id)
         if uid:
+            log.info(f"process_text_message: creating note for user {uid}")
             content = f"# Telegram text\n\n**Me:**\n{message.text}\n\n**AI:**\n{reply_text}"
             success = create_note(user_id=uid, content=content, source="telegram-bot")
+            log.info(f"process_text_message: note creation {'succeeded' if success else 'failed'}")
             return success
-        return False
-    except Exception:
+        else:
+            log.warning("process_text_message: could not resolve user ID")
+            return False
+    except Exception as e:
+        log.error(f"process_text_message: exception occurred: {e}", exc_info=True)
         return False
 
 
 async def process_voice_message(message: Message) -> bool:
     """Process voice message through AI and save to DB. Returns True if successful."""
+    import logging
+    log = logging.getLogger(__name__)
+    
     voice = message.voice
     if not voice:
+        log.warning("process_voice_message: no voice data")
         return False
 
     user = message.from_user
     user_id = user.id if user else message.chat.id
+    log.info(f"process_voice_message: starting for user {user_id}")
 
     try:
+        log.info("process_voice_message: downloading voice file")
         # Download OGG/OPUS to temp file
         bot = message.bot
         file = await bot.get_file(voice.file_id)
@@ -102,21 +141,31 @@ async def process_voice_message(message: Message) -> bool:
             tmp_path = Path(tmpdir) / f"voice_{voice.file_unique_id}{suffix}"
             await bot.download(file, destination=tmp_path)
 
+            log.info("process_voice_message: transcribing audio")
             # Transcribe (Whisper accepts audio formats like ogg/oga)
             text, _ = await transcribe_audio(file_path=str(tmp_path), language=(user.language_code if user else None))
 
         if not text:
+            log.warning("process_voice_message: transcription failed or empty")
             return False
+        
+        log.info(f"process_voice_message: transcription successful, length: {len(text)}")
 
         # Send recognized text to model including forward context
         forward_prefix = _forward_meta(message)
+        if forward_prefix:
+            log.info(f"process_voice_message: forwarded message detected: {forward_prefix[:100]}...")
+
+        log.info("process_voice_message: calling OpenAI API")
         reply_text, usage = await generate_text(
             prompt=forward_prefix + text,
             user_id=str(user_id),
             system_prompt=load_system_prompt() or "Use context7 for reasoning and concise, helpful responses.",
         )
+        log.info(f"process_voice_message: OpenAI response received, tokens: {usage.get('total_tokens', 0)}")
 
         # Log usage including voice duration (seconds from Telegram)
+        log.info("process_voice_message: logging usage")
         await log_usage(
             tg_user_id=user_id,
             kind="voice",
@@ -128,15 +177,23 @@ async def process_voice_message(message: Message) -> bool:
         )
 
         # Ensure user exists and persist note
+        log.info("process_voice_message: upserting user visit")
         if message.from_user:
             upsert_visit_from_tg_user(message.from_user)
+        
+        log.info("process_voice_message: resolving user ID")
         uid = resolve_user_id_by_tg(user_id)
         if uid:
+            log.info(f"process_voice_message: creating note for user {uid}")
             content = f"# Telegram voice\n\n**Transcript:**\n{text}\n\n**AI:**\n{reply_text}"
             success = create_note(user_id=uid, content=content, source="telegram-bot")
+            log.info(f"process_voice_message: note creation {'succeeded' if success else 'failed'}")
             return success
-        return False
-    except Exception:
+        else:
+            log.warning("process_voice_message: could not resolve user ID")
+            return False
+    except Exception as e:
+        log.error(f"process_voice_message: exception occurred: {e}", exc_info=True)
         return False
 
 

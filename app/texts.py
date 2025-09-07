@@ -91,10 +91,12 @@ NEXT_PROMPT: Dict[Lang, str] = {
 
 
 PROCESSING: Dict[Lang, str] = {
-    "en": "⏳ Processing...",
-    "uk": "⏳ Обробляю...",
-    "ru": "⏳ Обрабатываю...",
+    "en": "Processing...",
+    "uk": "Обробляю...",
+    "ru": "Обрабатываю...",
 }
+
+PROCESSING_EMOJI: str = "⏳"
 
 
 PROCESSED_DONE: Dict[Lang, str] = {

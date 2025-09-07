@@ -10,6 +10,7 @@ from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, W
 from ..state import get_user_state
 from ..texts import (
     PROCESSING,
+    PROCESSING_EMOJI,
     PROCESSED_DONE,
     NEXT_PROMPT,
     OPEN_BUTTON,
@@ -57,9 +58,10 @@ async def _handle_common(message: Message, message_type: str = "text") -> None:
             pass
         state.last_prompt_message_id = None
 
-    # Show processing message
+    # Show processing messages - text first, then emoji
     processing_text = PROCESSING.get(lang, PROCESSING["en"])
     processing_msg = await message.answer(processing_text)
+    emoji_msg = await message.answer(PROCESSING_EMOJI)
 
     # Process through AI and save to DB
     success = False
@@ -73,9 +75,10 @@ async def _handle_common(message: Message, message_type: str = "text") -> None:
     except Exception:
         success = False
 
-    # Remove processing message
+    # Remove processing messages
     try:
         await message.bot.delete_message(message.chat.id, processing_msg.message_id)
+        await message.bot.delete_message(message.chat.id, emoji_msg.message_id)
     except Exception:
         pass
 
