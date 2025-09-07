@@ -163,3 +163,18 @@ async def telegram_webhook(
     # Feed update to aiogram dispatcher
     await dp.feed_update(bot, update)
     return {"ok": True}
+
+
+# Accept trailing slash just in case Telegram or proxies append it
+@app.post("/telegram/webhook/")
+async def telegram_webhook_slash(
+    request: Request,
+    x_telegram_bot_api_secret_token: Optional[str] = Header(default=None),
+):
+    return await telegram_webhook(request, x_telegram_bot_api_secret_token)
+
+
+# Convenience GET for quick health checks (doesn't process updates)
+@app.get("/telegram/webhook")
+async def telegram_webhook_get():
+    return {"status": "ok"}
