@@ -6,13 +6,16 @@ from pathlib import Path
 from typing import Optional
 
 from aiogram import Router, F
-from aiogram.types import Message
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 
 from ..openai_client import generate_text, transcribe_audio
 from ..usage import log_usage
 from ..system_prompt import load_system_prompt
 from ..db_users import upsert_visit_from_tg_user
 from ..db_notes import resolve_user_id_by_tg, create_note
+from ..state import get_user_state
+from ..texts import PROCESSED_DONE, NEXT_PROMPT, ERROR_TRY_AGAIN, OPEN_BUTTON
+from ..config import settings
 
 router = Router(name=__name__)
 
@@ -38,25 +41,46 @@ def _forward_meta(message: Message) -> str:
     return ""
 
 
+def open_button_kb(lang: str) -> InlineKeyboardMarkup:
+    text = OPEN_BUTTON.get(lang, OPEN_BUTTON["en"])
+    url = settings.webapp_url or "https://n0tes-black.vercel.app/"
+    btn = InlineKeyboardButton(text=text, web_app=WebAppInfo(url=url))
+    return InlineKeyboardMarkup(inline_keyboard=[[btn]])
+
+
 @router.message(F.text & ~F.text.startswith("/"))
 async def handle_text_message(message: Message) -> None:
     if not message.text:
         return
     user = message.from_user
     user_id = user.id if user else message.chat.id
+    state = get_user_state(user_id)
+    lang = state.lang or "en"
 
     # Load system prompt from repo (system-prompt.md), fallback to minimal one
     system_prompt: Optional[str] = load_system_prompt() or "Use context7 for reasoning and concise, helpful responses."
 
     forward_prefix = _forward_meta(message)
 
-    reply_text, usage = await generate_text(
-        prompt=forward_prefix + message.text,
-        user_id=str(user_id),
-        system_prompt=system_prompt,
-    )
-
-    await message.answer(reply_text or "")
+    # Run AI generation and then try to persist the note. Only notify on success.
+    ok = False
+    usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+    ai_text = ""
+    try:
+        ai_text, usage = await generate_text(
+            prompt=forward_prefix + message.text,
+            user_id=str(user_id),
+            system_prompt=system_prompt,
+        )
+        # Ensure user exists and persist note (best effort, but we gate success on actual save)
+        if message.from_user:
+            upsert_visit_from_tg_user(message.from_user)
+        uid = resolve_user_id_by_tg(user_id)
+        if uid:
+            content = f"# Telegram text\n\n**Me:**\n{message.text}\n\n**AI:**\n{ai_text}"
+            ok = create_note(user_id=uid, content=content, source="tg-text")
+    except Exception:
+        ok = False
 
     # Log usage best-effort
     await log_usage(
@@ -69,16 +93,15 @@ async def handle_text_message(message: Message) -> None:
         model=None,
     )
 
-    # Ensure user exists and persist note (best effort)
-    try:
-        if message.from_user:
-            upsert_visit_from_tg_user(message.from_user)
-        uid = resolve_user_id_by_tg(user_id)
-        if uid:
-            content = f"# Telegram text\n\n**Me:**\n{message.text}\n\n**AI:**\n{reply_text}"
-            create_note(user_id=uid, content=content, source="tg-text")
-    except Exception:
-        pass
+    if ok:
+        # Success: show notification and open button, then next prompt
+        sent = await message.answer(PROCESSED_DONE.get(lang, PROCESSED_DONE["en"]), reply_markup=open_button_kb(lang))
+        state.last_content_message_id = sent.message_id
+        hint = await message.answer(NEXT_PROMPT.get(lang, NEXT_PROMPT["en"]))
+        state.last_prompt_message_id = hint.message_id
+    else:
+        # Failure: send a single short localized error message
+        await message.answer(ERROR_TRY_AGAIN.get(lang, ERROR_TRY_AGAIN["en"]))
 
 
 @router.message(F.voice)
@@ -109,14 +132,26 @@ async def handle_voice_message(message: Message) -> None:
 
     # Send recognized text to model including forward context
     forward_prefix = _forward_meta(message)
-    reply_text, usage = await generate_text(
-        prompt=forward_prefix + text,
-        user_id=str(user_id),
-        system_prompt=load_system_prompt() or "Use context7 for reasoning and concise, helpful responses.",
-    )
+    state = get_user_state(user_id)
+    lang = state.lang or "en"
 
-    # Reply with transcript + answer
-    await message.answer(f"🗣️ Распознано: {text}\n\n🤖 Ответ: {reply_text}")
+    ok = False
+    usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+    ai_text = ""
+    try:
+        ai_text, usage = await generate_text(
+            prompt=forward_prefix + text,
+            user_id=str(user_id),
+            system_prompt=load_system_prompt() or "Use context7 for reasoning and concise, helpful responses.",
+        )
+        if message.from_user:
+            upsert_visit_from_tg_user(message.from_user)
+        uid = resolve_user_id_by_tg(user_id)
+        if uid:
+            content = f"# Telegram voice\n\n**Transcript:**\n{text}\n\n**AI:**\n{ai_text}"
+            ok = create_note(user_id=uid, content=content, source="tg-voice")
+    except Exception:
+        ok = False
 
     # Log usage including voice duration (seconds from Telegram)
     await log_usage(
@@ -129,16 +164,13 @@ async def handle_voice_message(message: Message) -> None:
         model=None,
     )
 
-    # Ensure user exists and persist note (best effort)
-    try:
-        if message.from_user:
-            upsert_visit_from_tg_user(message.from_user)
-        uid = resolve_user_id_by_tg(user_id)
-        if uid:
-            content = f"# Telegram voice\n\n**Transcript:**\n{text}\n\n**AI:**\n{reply_text}"
-            create_note(user_id=uid, content=content, source="tg-voice")
-    except Exception:
-        pass
+    if ok:
+        sent = await message.answer(PROCESSED_DONE.get(lang, PROCESSED_DONE["en"]), reply_markup=open_button_kb(lang))
+        state.last_content_message_id = sent.message_id
+        hint = await message.answer(NEXT_PROMPT.get(lang, NEXT_PROMPT["en"]))
+        state.last_prompt_message_id = hint.message_id
+    else:
+        await message.answer(ERROR_TRY_AGAIN.get(lang, ERROR_TRY_AGAIN["en"]))
 
 
 @router.message(F.video_note)
@@ -168,13 +200,26 @@ async def handle_video_note(message: Message) -> None:
         return
 
     forward_prefix = _forward_meta(message)
-    reply_text, usage = await generate_text(
-        prompt=forward_prefix + text,
-        user_id=str(user_id),
-        system_prompt=load_system_prompt() or "Use context7 for reasoning and concise, helpful responses.",
-    )
+    state = get_user_state(user_id)
+    lang = state.lang or "en"
 
-    await message.answer(f"🎥 Распознано (кружок): {text}\n\n🤖 Ответ: {reply_text}")
+    ok = False
+    usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+    ai_text = ""
+    try:
+        ai_text, usage = await generate_text(
+            prompt=forward_prefix + text,
+            user_id=str(user_id),
+            system_prompt=load_system_prompt() or "Use context7 for reasoning and concise, helpful responses.",
+        )
+        if message.from_user:
+            upsert_visit_from_tg_user(message.from_user)
+        uid = resolve_user_id_by_tg(user_id)
+        if uid:
+            content = f"# Telegram video note\n\n**Transcript:**\n{text}\n\n**AI:**\n{ai_text}"
+            ok = create_note(user_id=uid, content=content, source="tg-video_note")
+    except Exception:
+        ok = False
 
     await log_usage(
         tg_user_id=user_id,
@@ -186,13 +231,10 @@ async def handle_video_note(message: Message) -> None:
         model=None,
     )
 
-    # Ensure user exists and persist note (best effort)
-    try:
-        if message.from_user:
-            upsert_visit_from_tg_user(message.from_user)
-        uid = resolve_user_id_by_tg(user_id)
-        if uid:
-            content = f"# Telegram video note\n\n**Transcript:**\n{text}\n\n**AI:**\n{reply_text}"
-            create_note(user_id=uid, content=content, source="tg-video_note")
-    except Exception:
-        pass
+    if ok:
+        sent = await message.answer(PROCESSED_DONE.get(lang, PROCESSED_DONE["en"]), reply_markup=open_button_kb(lang))
+        state.last_content_message_id = sent.message_id
+        hint = await message.answer(NEXT_PROMPT.get(lang, NEXT_PROMPT["en"]))
+        state.last_prompt_message_id = hint.message_id
+    else:
+        await message.answer(ERROR_TRY_AGAIN.get(lang, ERROR_TRY_AGAIN["en"]))

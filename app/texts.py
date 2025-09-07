@@ -110,6 +110,13 @@ ACCEPT_PRIVACY_FIRST: Dict[Lang, str] = {
     "ru": "Сначала примите Политику конфиденциальности.",
 }
 
+# Error shown when AI or DB persistence fails
+ERROR_TRY_AGAIN: Dict[Lang, str] = {
+    "en": "We couldn't process your note. Please try again or resend.",
+    "uk": "Не вдалося обробити запис. Будь ласка, спробуйте ще раз або перешліть.",
+    "ru": "Не удалось обработать запись. Пожалуйста, попробуйте ещё раз или перешлите.",
+}
+
 # Side menu commands descriptions per language
 COMMANDS_DESC: Dict[Lang, Dict[str, str]] = {
     "en": {
