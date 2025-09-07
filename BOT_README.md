@@ -54,6 +54,8 @@ python -m app.main
   - `app/handlers/ai.py` — обработчики текстовых и голосовых сообщений (распознаёт голос через Whisper и отправляет текст в модель).
   - `app/logger.py` — добавляет запись в `db.md` (секция `usage_log`) с полями: дата/время, tg_user_id, тип (`text`/`voice`), длительность голоса (сек), вход/выход/итого токены, модель.
   - `app/usage.py` — best-effort обновление счётчиков в Supabase (`app_users`: `text_tokens_used_total`, `text_generations_total`, `audio_minutes_total`, `audio_generations_total`).
+    - Токены считаются только для текстовых сообщений. Для голосовых/видео — считаются секунды (и пишутся в `audio_minutes_total`, несмотря на название).
+    - Опционально поддерживаются колонки `text_input_tokens_total` и `text_output_tokens_total` (см. миграцию `supabase_migrations/2025-09-07_add_text_token_splits.sql`).
 
 Регистрация роутеров:
 

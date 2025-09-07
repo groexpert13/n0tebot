@@ -36,3 +36,20 @@
 | public | notes      | created_at              | timestamp with time zone | NO          | now()             |
 | public | notes      | updated_at              | timestamp with time zone | NO          | now()             |
 | public | notes      | deleted_at              | timestamp with time zone | YES         | null              |
+
+\n
+## Notes on counters
+
+- Tokens recorded only for text messages:
+  - `text_tokens_used_total` — total (input + output) tokens.
+  - `text_input_tokens_total` — total input tokens (if column exists; see migration below).
+  - `text_output_tokens_total` — total output tokens (if column exists; see migration below).
+- Audio/video notes are counted in seconds:
+  - `audio_minutes_total` — stores SECONDS of audio despite the column name. This is intentional to keep implementation simple now.
+
+### Supabase migration to split token counters
+
+See `supabase_migrations/2025-09-07_add_text_token_splits.sql` to add:
+
+- `text_input_tokens_total bigint not null default 0`
+- `text_output_tokens_total bigint not null default 0`
