@@ -110,13 +110,6 @@ ACCEPT_PRIVACY_FIRST: Dict[Lang, str] = {
     "ru": "Сначала примите Политику конфиденциальности.",
 }
 
-# Generic error for failures to process or save
-ERROR_TRY_AGAIN: Dict[Lang, str] = {
-    "en": "Something went wrong. Please try again or resend.",
-    "uk": "Щось пішло не так. Спробуйте ще раз або надішліть знову.",
-    "ru": "Что-то пошло не так. Попробуйте ещё раз или перешлите заново.",
-}
-
 # Side menu commands descriptions per language
 COMMANDS_DESC: Dict[Lang, Dict[str, str]] = {
     "en": {

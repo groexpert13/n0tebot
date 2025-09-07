@@ -12,7 +12,7 @@ from aiogram.types import BotCommand
 # Support both `python -m app.main` and direct `python app/main.py`
 try:  # package-style imports (preferred)
     from .config import settings
-    from .handlers import start_router, misc_router, commands_router, ai_router
+    from .handlers import start_router, misc_router, commands_router, notes_router, ai_router
     from .supabase_client import get_supabase
 except ImportError:
     # If run as a file, ensure project root is on sys.path
@@ -20,7 +20,7 @@ except ImportError:
     if str(root) not in sys.path:
         sys.path.insert(0, str(root))
     from app.config import settings  # type: ignore
-    from app.handlers import start_router, misc_router, commands_router, ai_router  # type: ignore
+    from app.handlers import start_router, misc_router, commands_router, notes_router, ai_router  # type: ignore
     from app.supabase_client import get_supabase  # type: ignore
 
 
@@ -47,14 +47,13 @@ async def main() -> None:
         dp = Dispatcher()
 
         # Routers
-        # Include AI router early so that generic text/voice routes are handled
-        # by the AI pipeline which also persists notes to the database.
-        dp.include_router(ai_router)
+        # Include notes_router first to handle UX (processing animation + success/error messages)
+        # notes_router now calls AI processing functions internally
+        dp.include_router(notes_router)
         dp.include_router(start_router)
         dp.include_router(misc_router)
         dp.include_router(commands_router)
-        # notes_router was intercepting generic text/voice messages and not writing to DB.
-        # It is intentionally not included to ensure messages flow through ai_router.
+        # ai_router functions are now called by notes_router, not directly by dispatcher
 
         # Initialize Supabase client (no queries yet)
         supabase = get_supabase()
