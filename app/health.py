@@ -7,7 +7,7 @@ import time
 from typing import Dict, List, Tuple, Optional
 from urllib.parse import parse_qsl
 
-from fastapi import FastAPI, HTTPException, Query, Request, Header
+from fastapi import FastAPI, HTTPException, Query, Request, Header, BackgroundTasks
 from pydantic import BaseModel
 
 from .config import settings
@@ -144,6 +144,7 @@ async def resolve_user_get(init_data: str = Query(..., description="initData fro
 async def telegram_webhook(
     request: Request,
     x_telegram_bot_api_secret_token: Optional[str] = Header(default=None),
+    background_tasks: BackgroundTasks = None,
 ):
     # Optional verification via secret header if set
     if settings.telegram_webhook_secret:
@@ -160,8 +161,13 @@ async def telegram_webhook(
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid update payload")
 
-    # Feed update to aiogram dispatcher
-    await dp.feed_update(bot, update)
+    # Feed update to aiogram dispatcher in background to ACK immediately
+    if background_tasks is not None:
+        background_tasks.add_task(dp.feed_update, bot, update)
+    else:
+        # Fallback if BackgroundTasks is unavailable
+        import asyncio
+        asyncio.create_task(dp.feed_update(bot, update))
     return {"ok": True}
 
 
@@ -170,8 +176,9 @@ async def telegram_webhook(
 async def telegram_webhook_slash(
     request: Request,
     x_telegram_bot_api_secret_token: Optional[str] = Header(default=None),
+    background_tasks: BackgroundTasks = None,
 ):
-    return await telegram_webhook(request, x_telegram_bot_api_secret_token)
+    return await telegram_webhook(request, x_telegram_bot_api_secret_token, background_tasks)
 
 
 # Convenience GET for quick health checks (doesn't process updates)
