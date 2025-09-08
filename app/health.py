@@ -16,6 +16,7 @@ from .db_users import (
     resolve_user_basic_info,
 )
 from .supabase_client import get_supabase
+from .routes.billing import router as billing_router
 
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
@@ -23,6 +24,9 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.types import Update
 
 app = FastAPI()
+
+# Include billing routes
+app.include_router(billing_router)
 
 # Initialize aiogram Bot/Dispatcher for webhook mode
 bot = Bot(token=settings.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
