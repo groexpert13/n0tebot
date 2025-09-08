@@ -7,7 +7,7 @@ import time
 from typing import Dict, List, Tuple, Optional
 from urllib.parse import parse_qsl
 
-from fastapi import FastAPI, HTTPException, Query, Request, Header, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Query, Request, Header, BackgroundTasks, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -16,6 +16,10 @@ from .db_users import (
     upsert_visit_from_webapp_user,
     resolve_user_basic_info,
 )
+from .db_notes import resolve_user_id_by_tg, create_note
+from .openai_client import transcribe_audio, generate_text
+from .system_prompt import load_system_prompt
+from .usage import log_usage
 from .supabase_client import get_supabase
 from .routes.billing import router as billing_router
 
@@ -208,3 +212,134 @@ async def telegram_webhook_slash(
 @app.get("/telegram/webhook")
 async def telegram_webhook_get():
     return {"status": "ok"}
+
+
+# Accept voice/audio from Telegram WebApp and process through the same pipeline
+@app.post("/webapp/upload-audio")
+async def webapp_upload_audio(
+    init_data: str = Form(..., description="Telegram WebApp initData"),
+    file: UploadFile = File(..., description="Audio/voice/video file"),
+    duration: Optional[float] = Form(None, description="Media duration in seconds (optional)"),
+    caption: Optional[str] = Form(None, description="Optional caption to include in the prompt"),
+    language: Optional[str] = Form(None, description="User language code like 'en', 'uk', 'ru' (optional)"),
+):
+    """Upload endpoint for WebApp to send audio/voice and reuse existing processing flow.
+
+    - Verifies Telegram init_data signature
+    - Transcribes the uploaded media (audio/video)
+    - Sends result to AI (same as bot flow)
+    - Logs usage and saves a note for the user
+    """
+    if not settings.bot_token:
+        raise HTTPException(status_code=500, detail="BOT_TOKEN missing")
+
+    # Verify and parse init_data
+    data = _verify_init_data(init_data, settings.bot_token)
+    user_raw = data.get("user")
+    if not user_raw:
+        raise HTTPException(status_code=400, detail="init_data missing user")
+    try:
+        user_obj = json.loads(user_raw)
+    except Exception:
+        raise HTTPException(status_code=400, detail="user field is not valid JSON")
+
+    tg_user_id = int(user_obj.get("id"))
+    user_lang = language or user_obj.get("language_code") or "en"
+
+    # Upsert visit (webapp platform)
+    try:
+        upsert_visit_from_webapp_user(user_obj, platform="webapp")
+    except Exception:
+        pass
+
+    # Persist file to temp and transcribe
+    try:
+        import os
+        import tempfile as _tempfile
+        from pathlib import Path as _Path
+
+        # Determine extension best-effort
+        filename = file.filename or "media"
+        ext = _Path(filename).suffix or ".ogg"
+        with _tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = _Path(tmpdir) / f"upload_{tg_user_id}{ext}"
+            content = await file.read()
+            with open(tmp_path, "wb") as f:
+                f.write(content)
+
+            # Transcribe with Whisper-compatible helper
+            transcript, _usage_stt = await transcribe_audio(file_path=str(tmp_path), language=user_lang)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Failed to read or transcribe uploaded file")
+
+    if not transcript or not transcript.strip():
+        raise HTTPException(status_code=400, detail="Empty transcription")
+
+    # Prepare prompt (caption + transcript)
+    parts = []
+    if caption and caption.strip():
+        parts.append(caption.strip())
+    parts.append(transcript.strip())
+    prompt = "\n\n---\n\n".join(parts)
+
+    # Resolve user id in DB
+    uid = resolve_user_id_by_tg(tg_user_id)
+    if not uid:
+        raise HTTPException(status_code=404, detail="user not found")
+
+    # Call AI
+    system = load_system_prompt() or "Use context7 for reasoning and concise, helpful responses."
+    reply_text, usage = await generate_text(
+        prompt=prompt,
+        user_id=str(tg_user_id),
+        system_prompt=system,
+    )
+
+    # Log usage for text and voice seconds (if provided)
+    try:
+        await log_usage(
+            tg_user_id=tg_user_id,
+            kind="text",
+            input_tokens=usage.get("input_tokens", 0),
+            output_tokens=usage.get("output_tokens", 0),
+            total_tokens=usage.get("total_tokens", 0),
+            voice_seconds=0.0,
+            model=None,
+        )
+        if duration is not None:
+            await log_usage(
+                tg_user_id=tg_user_id,
+                kind="voice",
+                input_tokens=0,
+                output_tokens=0,
+                total_tokens=0,
+                voice_seconds=float(duration or 0.0),
+                model=None,
+            )
+    except Exception:
+        pass
+
+    # Sanitize and save note
+    from .handlers.ai import _strip_trailing_json_block as _sanitize
+    cleaned = _sanitize(reply_text)
+    if not cleaned or not cleaned.strip():
+        raise HTTPException(status_code=500, detail="AI returned empty response")
+
+    lines = cleaned.strip().split("\n", 1)
+    title = lines[0].strip() if lines else ""
+    content = lines[1].strip() if len(lines) > 1 else ""
+    if not content:
+        content = title
+        title = None
+
+    from datetime import datetime, timezone
+    current_time = datetime.now(timezone.utc).strftime("%H:%M")
+    saved = create_note(user_id=uid, content=content, title=title, source="web", time=current_time)
+    if not saved:
+        raise HTTPException(status_code=500, detail="Failed to save note")
+
+    return {
+        "ok": True,
+        "note_saved": True,
+        "content_preview": content[:200],
+    }
