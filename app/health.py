@@ -8,6 +8,7 @@ from typing import Dict, List, Tuple, Optional
 from urllib.parse import parse_qsl
 
 from fastapi import FastAPI, HTTPException, Query, Request, Header, BackgroundTasks
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from .config import settings
@@ -24,6 +25,15 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.types import Update
 
 app = FastAPI()
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, specify your frontend domains
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Include billing routes
 app.include_router(billing_router)
