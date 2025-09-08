@@ -20,7 +20,7 @@ from ..texts import (
 from ..config import settings
 from ..openai_client import generate_text, transcribe_audio
 from ..system_prompt import load_system_prompt
-from ..db_users import upsert_visit_from_tg_user
+from ..db_users import upsert_visit_from_tg_user, get_privacy_accepted
 from ..db_notes import resolve_user_id_by_tg, create_note
 from ..usage import log_usage
 from .ai import _forward_meta, _strip_trailing_json_block
@@ -42,7 +42,14 @@ async def _handle_common(message: Message, message_type: str = "text") -> None:
     state = get_user_state(user_id)
     lang = state.lang or "en"
 
-    # If privacy not accepted yet, re-prompt politely
+    # If privacy not accepted in memory, hydrate from DB to avoid false negatives after restarts
+    if not state.accepted_privacy:
+        try:
+            if get_privacy_accepted(user_id):
+                state.accepted_privacy = True
+        except Exception:
+            pass
+    # Still not accepted — re-prompt politely
     if not state.accepted_privacy:
         await message.answer(
             "Please accept the Privacy Notice first." if lang == "en" else (
