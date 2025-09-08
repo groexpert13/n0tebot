@@ -4,6 +4,7 @@ Billing API routes for Tribute.tg integration
 
 from fastapi import APIRouter, HTTPException, Request, Depends
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 
 from ..handlers.tribute import (
     get_pricing,
@@ -14,6 +15,15 @@ from ..handlers.tribute import (
 
 router = APIRouter(prefix="/billing", tags=["billing"])
 
+
+@router.options("/pricing")
+async def pricing_options():
+    """Handle CORS preflight for pricing endpoint"""
+    return JSONResponse(content={}, headers={
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "*"
+    })
 
 @router.get("/pricing")
 async def get_pricing_endpoint():
@@ -27,6 +37,15 @@ async def get_pricing_endpoint():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@router.options("/create-purchase")
+async def create_purchase_options():
+    """Handle CORS preflight for create-purchase endpoint"""
+    return JSONResponse(content={}, headers={
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "*"
+    })
 
 @router.post("/create-purchase")
 async def create_purchase_endpoint(request: CreatePurchaseRequest):

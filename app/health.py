@@ -119,6 +119,15 @@ def _verify_init_data(init_data: str, bot_token: str) -> Dict[str, str]:
     return data
 
 
+@app.options("/resolve-user")
+async def resolve_user_options():
+    """Handle CORS preflight for resolve-user endpoint"""
+    return JSONResponse(content={}, headers={
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+        "Access-Control-Allow-Headers": "*"
+    })
+
 @app.post("/resolve-user")
 async def resolve_user(req: ResolveUserRequest):
     if not settings.bot_token:
