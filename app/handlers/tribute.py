@@ -29,10 +29,10 @@ class CreatePurchaseRequest(BaseModel):
 # Product mapping to Tribute.tg product IDs
 # Update these with actual IDs after running the setup script
 TRIBUTE_PRODUCT_IDS = {
-    "sub_monthly": YOUR_MONTHLY_PRODUCT_ID,
-    "sub_yearly": YOUR_YEARLY_PRODUCT_ID,  
-    "audio_topup": YOUR_AUDIO_PRODUCT_ID,
-    "tokens_topup": YOUR_TOKENS_PRODUCT_ID
+    "sub_monthly": None,  # Replace with YOUR_MONTHLY_PRODUCT_ID
+    "sub_yearly": None,   # Replace with YOUR_YEARLY_PRODUCT_ID
+    "audio_topup": None,  # Replace with YOUR_AUDIO_PRODUCT_ID
+    "tokens_topup": None  # Replace with YOUR_TOKENS_PRODUCT_ID
 }
 
 # Pricing configuration in EUR cents
