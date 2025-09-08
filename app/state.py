@@ -18,6 +18,8 @@ class UserState:
     # Batch collection for grouping multiple incoming messages into one note
     batch_items: List[Dict[str, Any]] = field(default_factory=list)
     batch_task: Optional[Any] = None  # asyncio.Task, stored as Any to avoid import cycle
+    # Per-user lock to prevent race conditions when multiple messages arrive simultaneously
+    batch_lock: Optional[Any] = None  # asyncio.Lock created lazily
 
 
 user_states: Dict[int, UserState] = {}

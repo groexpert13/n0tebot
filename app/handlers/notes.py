@@ -75,42 +75,60 @@ async def _enqueue_for_batch(message: Message, message_type: str) -> None:
     state = get_user_state(user_id)
     lang = state.lang or "en"
 
-    # On the very first message of a batch: cleanup previous "done"+"hint"
-    first_in_batch = (state.processing_msg_id is None and state.processing_emoji_msg_id is None)
-    if first_in_batch:
-        if state.last_content_message_id:
-            try:
-                await message.bot.delete_message(message.chat.id, state.last_content_message_id)
-            except Exception:
-                pass
-            state.last_content_message_id = None
-        if state.last_prompt_message_id:
-            try:
-                await message.bot.delete_message(message.chat.id, state.last_prompt_message_id)
-            except Exception:
-                pass
-            state.last_prompt_message_id = None
+    # Ensure per-user lock exists
+    if state.batch_lock is None:
+        import asyncio as _asyncio
+        state.batch_lock = _asyncio.Lock()
 
-        # Show a single pair of processing messages for the batch
-        processing_text = PROCESSING.get(lang, PROCESSING["en"])
-        processing_msg = await message.answer(processing_text)
-        emoji_msg = await message.answer(PROCESSING_EMOJI)
-        state.processing_msg_id = processing_msg.message_id
-        state.processing_emoji_msg_id = emoji_msg.message_id
+    async with state.batch_lock:
+        # On the very first message of a batch: cleanup previous "done"+"hint"
+        first_in_batch = (state.processing_msg_id is None and state.processing_emoji_msg_id is None)
+        if first_in_batch:
+            if state.last_content_message_id:
+                try:
+                    await message.bot.delete_message(message.chat.id, state.last_content_message_id)
+                except Exception:
+                    pass
+                state.last_content_message_id = None
+            if state.last_prompt_message_id:
+                try:
+                    await message.bot.delete_message(message.chat.id, state.last_prompt_message_id)
+                except Exception:
+                    pass
+                state.last_prompt_message_id = None
 
-    # Add to buffer
-    state.batch_items.append({"type": message_type, "message": message})
+            # Show a single pair of processing messages for the batch
+            processing_text = PROCESSING.get(lang, PROCESSING["en"])
+            processing_msg = await message.answer(processing_text)
+            emoji_msg = await message.answer(PROCESSING_EMOJI)
+            state.processing_msg_id = processing_msg.message_id
+            state.processing_emoji_msg_id = emoji_msg.message_id
 
-    # Reset/reschedule the task
-    if state.batch_task is not None:
+        # Add to buffer
+        state.batch_items.append({"type": message_type, "message": message})
+
+        # If not first message, update the counter in the processing text (best-effort)
         try:
-            state.batch_task.cancel()
+            if not first_in_batch and state.processing_msg_id:
+                processing_text = PROCESSING.get(lang, PROCESSING["en"])
+                await message.bot.edit_message_text(
+                    chat_id=message.chat.id,
+                    message_id=state.processing_msg_id,
+                    text=f"{processing_text} ({len(state.batch_items)})",
+                )
         except Exception:
             pass
-        state.batch_task = None
 
-    # Short debounce window to collect multiple forwards (texts/voices/videos)
-    state.batch_task = asyncio.create_task(_process_batch_after_delay(message, delay=0.9))
+        # Reset/reschedule the task
+        if state.batch_task is not None:
+            try:
+                state.batch_task.cancel()
+            except Exception:
+                pass
+            state.batch_task = None
+
+        # Short debounce window to collect multiple forwards (texts/voices/videos)
+        state.batch_task = asyncio.create_task(_process_batch_after_delay(message, delay=0.9))
 
 
 async def _process_batch_after_delay(message: Message, *, delay: float = 1.4) -> None:
@@ -157,114 +175,87 @@ async def _process_batch_core(message: Message, items: List[Dict[str, Any]]) -> 
     total_voice_seconds: float = 0.0
 
     try:
-        # Concurrency with ordering preserved
-        sem = asyncio.Semaphore(3)
-
-        async def _process_one(idx: int, it: Dict[str, Any]):
+        # Process strictly sequentially to simplify UX and avoid multiple edits
+        for it in items:
             kind = it.get("type")
             msg: Message = it.get("message")
             prefix = _forward_meta(msg)
-            added_seconds: float = 0.0
-            text_out: str = ""
-
-            async with sem:
-                try:
-                    bot = msg.bot
-                    # Text-only
-                    if kind == "text" and msg.text:
-                        text_out = prefix + msg.text
-                    # Voice note (OGG)
-                    elif kind == "voice" and msg.voice:
-                        file = await bot.get_file(msg.voice.file_id)
+            try:
+                bot = msg.bot
+                if kind == "text" and msg.text:
+                    parts.append(prefix + msg.text)
+                elif kind == "voice" and msg.voice:
+                    file = await bot.get_file(msg.voice.file_id)
+                    with tempfile.TemporaryDirectory() as tmpdir:
+                        tmp_path = Path(tmpdir) / f"voice_{msg.voice.file_unique_id}.ogg"
+                        await bot.download(file, destination=tmp_path)
+                        t, _ = await transcribe_audio(file_path=str(tmp_path), language=(user.language_code if user else None))
+                    if t:
+                        parts.append(prefix + t)
+                    total_voice_seconds += float(msg.voice.duration or 0)
+                elif kind == "video_note" and msg.video_note:
+                    file = await bot.get_file(msg.video_note.file_id)
+                    with tempfile.TemporaryDirectory() as tmpdir:
+                        tmp_path = Path(tmpdir) / f"video_note_{msg.video_note.file_unique_id}.mp4"
+                        await bot.download(file, destination=tmp_path)
+                        t, _ = await transcribe_audio(file_path=str(tmp_path), language=(user.language_code if user else None))
+                    if t:
+                        parts.append(prefix + t)
+                    total_voice_seconds += float(msg.video_note.duration or 0)
+                elif kind == "video" and msg.video:
+                    file = await bot.get_file(msg.video.file_id)
+                    with tempfile.TemporaryDirectory() as tmpdir:
+                        tmp_path = Path(tmpdir) / f"video_{msg.video.file_unique_id}.mp4"
+                        await bot.download(file, destination=tmp_path)
+                        t, _ = await transcribe_audio(file_path=str(tmp_path), language=(user.language_code if user else None))
+                    cap = (msg.caption or "").strip()
+                    if t:
+                        parts.append(prefix + (cap + "\n\n" if cap else "") + t)
+                    elif cap:
+                        parts.append(prefix + cap)
+                    total_voice_seconds += float(msg.video.duration or 0)
+                elif kind == "audio" and msg.audio:
+                    file = await bot.get_file(msg.audio.file_id)
+                    with tempfile.TemporaryDirectory() as tmpdir:
+                        ext = Path(msg.audio.file_name or "audio").suffix or ".mp3"
+                        tmp_path = Path(tmpdir) / f"audio_{msg.audio.file_unique_id}{ext}"
+                        await bot.download(file, destination=tmp_path)
+                        t, _ = await transcribe_audio(file_path=str(tmp_path), language=(user.language_code if user else None))
+                    cap = (msg.caption or "").strip()
+                    if t:
+                        parts.append(prefix + (cap + "\n\n" if cap else "") + t)
+                    elif cap:
+                        parts.append(prefix + cap)
+                    total_voice_seconds += float(msg.audio.duration or 0)
+                elif kind == "document" and msg.document:
+                    mime = (msg.document.mime_type or "").lower()
+                    name = (msg.document.file_name or "").lower()
+                    is_media = (
+                        mime.startswith("audio/") or mime.startswith("video/") or
+                        any(name.endswith(ext) for ext in (".mp3", ".m4a", ".wav", ".ogg", ".flac", ".mp4", ".mkv", ".mov", ".webm"))
+                    )
+                    cap = (msg.caption or "").strip()
+                    if is_media:
+                        file = await bot.get_file(msg.document.file_id)
                         with tempfile.TemporaryDirectory() as tmpdir:
-                            tmp_path = Path(tmpdir) / f"voice_{msg.voice.file_unique_id}.ogg"
+                            ext = Path(name).suffix or (".mp4" if "video" in mime else ".mp3")
+                            tmp_path = Path(tmpdir) / f"doc_{msg.document.file_unique_id}{ext}"
                             await bot.download(file, destination=tmp_path)
                             t, _ = await transcribe_audio(file_path=str(tmp_path), language=(user.language_code if user else None))
                         if t:
-                            text_out = prefix + t
-                        added_seconds = float(msg.voice.duration or 0)
-                    # Round video note (MP4/WEBM), extract audio track only
-                    elif kind == "video_note" and msg.video_note:
-                        file = await bot.get_file(msg.video_note.file_id)
-                        with tempfile.TemporaryDirectory() as tmpdir:
-                            tmp_path = Path(tmpdir) / f"video_note_{msg.video_note.file_unique_id}.mp4"
-                            await bot.download(file, destination=tmp_path)
-                            t, _ = await transcribe_audio(file_path=str(tmp_path), language=(user.language_code if user else None))
-                        if t:
-                            text_out = prefix + t
-                        added_seconds = float(msg.video_note.duration or 0)
-                    # Full video (extract audio only)
-                    elif kind == "video" and msg.video:
-                        file = await bot.get_file(msg.video.file_id)
-                        with tempfile.TemporaryDirectory() as tmpdir:
-                            tmp_path = Path(tmpdir) / f"video_{msg.video.file_unique_id}.mp4"
-                            await bot.download(file, destination=tmp_path)
-                            t, _ = await transcribe_audio(file_path=str(tmp_path), language=(user.language_code if user else None))
-                        # Add caption if present
-                        cap = (msg.caption or "").strip()
-                        if t:
-                            text_out = prefix + (cap + "\n\n" if cap else "") + t
+                            parts.append(prefix + (cap + "\n\n" if cap else "") + t)
                         elif cap:
-                            text_out = prefix + cap
-                        added_seconds = float(msg.video.duration or 0)
-                    # Audio file (mp3/m4a/wav/ogg)
-                    elif kind == "audio" and msg.audio:
-                        file = await bot.get_file(msg.audio.file_id)
-                        with tempfile.TemporaryDirectory() as tmpdir:
-                            # try to keep extension
-                            ext = Path(msg.audio.file_name or "audio").suffix or ".mp3"
-                            tmp_path = Path(tmpdir) / f"audio_{msg.audio.file_unique_id}{ext}"
-                            await bot.download(file, destination=tmp_path)
-                            t, _ = await transcribe_audio(file_path=str(tmp_path), language=(user.language_code if user else None))
-                        cap = (msg.caption or "").strip()
-                        if t:
-                            text_out = prefix + (cap + "\n\n" if cap else "") + t
-                        elif cap:
-                            text_out = prefix + cap
-                        added_seconds = float(msg.audio.duration or 0)
-                    # Document that is audio/video (by mime or filename); otherwise keep caption only
-                    elif kind == "document" and msg.document:
-                        mime = (msg.document.mime_type or "").lower()
-                        name = (msg.document.file_name or "").lower()
-                        is_media = (
-                            mime.startswith("audio/") or mime.startswith("video/") or
-                            any(name.endswith(ext) for ext in (".mp3", ".m4a", ".wav", ".ogg", ".flac", ".mp4", ".mkv", ".mov", ".webm"))
-                        )
-                        cap = (msg.caption or "").strip()
-                        if is_media:
-                            file = await bot.get_file(msg.document.file_id)
-                            with tempfile.TemporaryDirectory() as tmpdir:
-                                ext = Path(name).suffix or (".mp4" if "video" in mime else ".mp3")
-                                tmp_path = Path(tmpdir) / f"doc_{msg.document.file_unique_id}{ext}"
-                                await bot.download(file, destination=tmp_path)
-                                t, _ = await transcribe_audio(file_path=str(tmp_path), language=(user.language_code if user else None))
-                            # We cannot reliably get duration from document; 0 by default
-                            if t:
-                                text_out = prefix + (cap + "\n\n" if cap else "") + t
-                            elif cap:
-                                text_out = prefix + cap
-                        else:
-                            if cap:
-                                text_out = prefix + cap
-                    # Photo(s): keep only caption (no OCR)
-                    elif kind == "photo" and getattr(msg, "photo", None):
-                        cap = (msg.caption or "").strip()
+                            parts.append(prefix + cap)
+                    else:
                         if cap:
-                            text_out = prefix + cap
-                except Exception:
-                    text_out = ""
-                    added_seconds = 0.0
-
-            return idx, text_out, added_seconds
-
-        results = await asyncio.gather(*[_process_one(i, it) for i, it in enumerate(items)], return_exceptions=False)
-
-        # Preserve original order
-        for _, text_out, added_seconds in results:
-            if text_out:
-                parts.append(text_out)
-            if added_seconds:
-                total_voice_seconds += float(added_seconds)
+                            parts.append(prefix + cap)
+                elif kind == "photo" and getattr(msg, "photo", None):
+                    cap = (msg.caption or "").strip()
+                    if cap:
+                        parts.append(prefix + cap)
+            except Exception:
+                # Skip item on failure but continue processing the rest
+                continue
 
         if not parts:
             raise RuntimeError("No content extracted from batch")
